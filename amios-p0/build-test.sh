@@ -7,6 +7,29 @@ PREFIX="$HOME/Amiberry"
 LOGDIR="$PREFIX/logs"
 mkdir -p "$PREFIX" "$LOGDIR"
 echo "AmiOS P0: building isolated Amiberry in $PREFIX"
+# Check the Debian development dependencies against the desktop CMake build.
+# No packages are installed automatically; report the complete missing set.
+if command -v dpkg-query >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+  packages=(build-essential git cmake pkg-config libsdl3-dev libsdl3-image-dev
+    libflac-dev libmpg123-dev libpng-dev zlib1g-dev libmpeg2-4-dev
+    libserialport-dev libportmidi-dev libenet-dev libpcap-dev libzstd-dev
+    libcurl4-openssl-dev nlohmann-json3-dev libdbus-1-dev
+    libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev)
+  missing=()
+  for pkg in "${packages[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -qx 'install ok installed'; then
+      missing+=("$pkg")
+    fi
+  done
+  if (("${#missing[@]}" > 0)); then
+    echo "Missing Debian build packages:"
+    printf '  %s\n' "${missing[@]}"
+    printf '\nInstall together with:\n  sudo apt update && sudo apt install -y'
+    printf ' %q' "${missing[@]}"
+    printf '\n'
+    exit 2
+  fi
+fi
 command -v cmake >/dev/null || { echo "cmake missing"; exit 2; }
 cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$LOGDIR/configure.log"
 cmake --build "$BUILD" -j"$(nproc)" 2>&1 | tee "$LOGDIR/build.log"
