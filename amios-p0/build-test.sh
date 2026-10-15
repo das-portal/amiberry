@@ -1,22 +1,33 @@
 #!/usr/bin/env bash
-# AmiOS 8.4.0 baseline build and dual-display diagnostic launcher.
-# Does not install or enable an AmiOS Wayland exporter.
+# Isolated, user-owned AmiOS P0 build; never writes to system directories.
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build-amios-p0"
-PREFIX="$HOME/.local/opt/amios-amiberry-p0"
-LOGDIR="$HOME/.local/state/amios-p0"
-mkdir -p "$LOGDIR" "$PREFIX"
-echo "AmiOS P0: Amiberry baseline build (no window export)"
-echo "Source: $ROOT"
-echo "Logs: $LOGDIR"
-command -v cmake >/dev/null || { echo "Install cmake and Debian development dependencies first"; exit 2; }
+PREFIX="$HOME/Amiberry"
+LOGDIR="$PREFIX/logs"
+mkdir -p "$PREFIX" "$LOGDIR"
+echo "AmiOS P0: building isolated Amiberry in $PREFIX"
+command -v cmake >/dev/null || { echo "cmake missing"; exit 2; }
 cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$LOGDIR/configure.log"
 cmake --build "$BUILD" -j"$(nproc)" 2>&1 | tee "$LOGDIR/build.log"
 BIN="$(find "$BUILD" -type f -name amiberry -executable -print -quit)"
-if [[ -z "$BIN" ]]; then echo "Build completed but executable was not found. Inspect $LOGDIR/build.log"; exit 3; fi
-cp "$BIN" "$PREFIX/amiberry"
-echo "Built: $PREFIX/amiberry"
-echo "Test manually using your EXISTING .uae config:"
-echo "  $PREFIX/amiberry -f /absolute/path/to/your.uae"
-echo "Do not run this simultaneously with your working AmiOS68K session."
+[[ -n "$BIN" ]] || { echo "No executable found; inspect $LOGDIR/build.log"; exit 3; }
+install -m 755 "$BIN" "$PREFIX/amiberry"
+for dir in configs roms harddrives whdboot plugins controllers logs; do mkdir -p "$PREFIX/$dir"; done
+# Copy only bundled resources present in this source checkout; do not overwrite user data.
+for dir in data controllers whdboot; do
+  if [[ -d "$ROOT/$dir" ]]; then cp -an "$ROOT/$dir/." "$PREFIX/$dir/" 2>/dev/null || true; fi
+done
+cat > "$PREFIX/run-amiberry.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd "$HOME/Amiberry"
+export AMIBERRY_HOME_DIR="$HOME/Amiberry"
+export AMIBERRY_PLUGINS_DIR="$HOME/Amiberry/plugins"
+exec "$HOME/Amiberry/amiberry" "$@"
+EOF
+chmod 755 "$PREFIX/run-amiberry.sh"
+echo "Installed under $PREFIX (no sudo needed to modify)"
+echo "Launch: $PREFIX/run-amiberry.sh"
+echo "With config: $PREFIX/run-amiberry.sh -f /path/to/copied-config.uae"
+echo "Do not run alongside the existing AmiOS68K emulator."
