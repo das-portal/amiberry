@@ -1,8 +1,8 @@
-# AmiOS Wayland Foundation — P0 test install
+# AmiOS P0 — user-owned home-directory install
 
-This branch is an **isolated upstream Amiberry baseline** for Debian. It does **not** contain the proposed Wayland-native window exporter or independent retained-RTG/native-screen presentation. Those remain development tasks. The goal of P0 is to verify a known baseline without changing the working R17E7 installation.
+This is a **vanilla Amiberry baseline build**, not the dual-display or Wayland export implementation. It does not replace R17E7.
 
-## Install/build
+## Build on Debian
 
 ```bash
 sudo apt update
@@ -12,24 +12,32 @@ cd ~/AmiOS84-test
 bash amios-p0/build-test.sh
 ```
 
-If CMake reports missing dependencies, install the named Debian development packages following upstream Amiberry's build guide. Do not replace the existing AmiOS68K binary.
-
-The script builds under `build-amios-p0`, copies the executable to `~/.local/opt/amios-amiberry-p0/amiberry`, and saves configure/build logs under `~/.local/state/amios-p0/`.
-
-## Controlled manual checks
-
-Use a copy of the existing UAE config. Launch the new binary **after stopping the old emulator**. Verify: RTG Workbench starts, EditPad input works, ProTracker native PAL opens and closes, switching back to Workbench works, and no pointer capture problems occur. Vanilla Amiberry will show normal emulator windows; individual Wayland exports are not expected.
-
-## Evidence to retain
+If you already cloned the branch, update it instead:
 
 ```bash
-uname -a
-echo "session=$XDG_SESSION_TYPE desktop=$XDG_CURRENT_DESKTOP"
-cmake --version
+cd ~/AmiOS84-test
+git pull --ff-only
+bash amios-p0/build-test.sh
 ```
 
-Keep `configure.log` and `build.log` if anything fails. No guest OS, ROM, disk image, or user configuration is packaged.
+CMake may require additional Debian development libraries; install the specific missing dependencies according to the upstream Amiberry build guide.
 
-## Next implementation milestone
+## Layout
 
-A separate experimental patch will add independently retained RTG and chipset presentation with explicit state logging, followed by a Wayland exporter proof of concept. This P0 is not that patch.
+The test executable and launcher are installed to `~/Amiberry/amiberry` and `~/Amiberry/run-amiberry.sh`. The installer creates user-owned `configs/`, `roms/`, `harddrives/`, `whdboot/`, `plugins/`, `controllers/`, `logs/` folders there. It copies existing bundled source assets when present without overwriting existing files.
+
+`AMIBERRY_HOME_DIR` and `AMIBERRY_PLUGINS_DIR` are set in the launcher. Amiberry can maintain other per-user paths depending on its settings; confirm the effective paths in its Paths GUI. The installer does **not** move ROMs, HDFs or personal configurations, or alter existing installation paths.
+
+```bash
+~/Amiberry/run-amiberry.sh
+# To test an existing configuration, make a copy first:
+~/Amiberry/run-amiberry.sh -f /absolute/path/to/test-copy.uae
+```
+
+Build files remain in `~/AmiOS84-test/build-amios-p0/`. Build logs: `~/Amiberry/logs/configure.log` and `~/Amiberry/logs/build.log`.
+
+**Safety:** if `~/Amiberry` already contains an installation, this installer replaces its `amiberry` executable. Back it up or rename that directory before running. No system directories are written by the build script. Do not run this emulator at the same time as R17E7.
+
+## Baseline test
+
+Stop existing emulator, then test RTG Workbench, EditPad input, ProTracker native PAL open/close and returning to Workbench. Ordinary emulator windows are expected: native Wayland export and retained RTG are future work.
