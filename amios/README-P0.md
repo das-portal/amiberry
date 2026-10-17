@@ -1,4 +1,4 @@
-# AmiOS Amiberry 8.4.1 — P0
+# AmiOS68K v0.10 — Amiberry 8.4.1 development baseline
 
 Experimental first-source build on the 8.4.1-era GitHub fork. This has not yet been built or run against Debian/AmigaOS.
 
@@ -16,7 +16,7 @@ Run: `$HOME/AmiOS/.local/Amiberry/amios-run --config Configurations/YourOS.uae`.
 ## Testing
 1. Copy/link your licensed ROMs and existing OS drives to `roms/`, `harddrives/`; edit the `.uae` paths to relative file paths and verify using `./amiberry --dump-paths`.
 2. Select the virtual 4096x2160 P96 mode in guest ScreenMode. Verify Intuition actually reports the full dimensions; Overscan/P96Fix settings may be required.
-3. Use the old Stage 4 `C:AmiOS68kAllocator` guest helper for non-overlapping window positioning; it is not automatically installed in this experimental branch.
+3. Install [AmiOSBridge v0.10](https://github.com/das-portal/AmiOS68K/tree/main/bridge/v0.10) (`C:AmiOSBridge`), based on the original Stage 4 allocator for non-overlapping window positioning; it is not automatically installed in this experimental branch.
 4. Open EditPad and IconEdit; inspect independent SDL3 windows while leaving the original emulator monitor open.
 
 ## Flags
@@ -26,3 +26,9 @@ Run: `$HOME/AmiOS/.local/Amiberry/amios-run --config Configurations/YourOS.uae`.
 Input, scrolling, resize, close handling, native screens, and custom-P96 screens have not been reimplemented/validated in this P0. Overlapping guest windows are not sampled; the host retains previous texture. The new code uploads complete windows rather than an incremental dirty-tile list. Test with input disabled initially. This is not a production release.
 
 The historic RC1 source is retained separately rather than indiscriminately overlaid on 8.4.1.
+## Versioning and project home
+
+- **AmiOS68K v0.10** is the integration project version; **Amiberry 8.4.1** is the underlying emulator version.
+- **AmiOSBridge v0.10** is the guest helper package (unchanged historic Stage 4d-R2 executable, guest wire protocol 2).
+- [AmiOS68K project homepage](https://github.com/das-portal/AmiOS68K) shows the current architecture and separates old R17E7 work from the active development.
+- This branch remains experimental until compiled and runtime-validated. Do not merge the existing draft PR solely because its naming is now aligned.
