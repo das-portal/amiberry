@@ -1,0 +1,5 @@
+amios_version=0.10.0-dev
+amiberry_base=8.4.1
+bridge_version=0.10.0-dev
+bridge_guest_protocol=2
+release_status=experimental
