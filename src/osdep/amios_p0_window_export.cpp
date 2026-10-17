@@ -88,6 +88,10 @@ struct ExportedWindow {
     int resize_start_w = 0, resize_start_h = 0;
     int start_x = 0, start_y = 0, target_x = 0, target_y = 0;
     bool synthetic_down = false;
+    int active_mouse = 0;
+    uint32_t pressed_buttons = 0;
+    bool host_input_active = false;
+    int requested_outer_w = 0, requested_outer_h = 0;
     ResizePhase resize_phase = ResizePhase::idle;
     uint64_t resize_phase_at = 0, last_pointer_at = 0;
     int expected_host_w = 0, expected_host_h = 0;
@@ -290,7 +294,7 @@ std::vector<GuestWindow> scan(SDL_Surface* source) {
 }
 
 void stop_resize(ExportedWindow& w) {
-    if (w.synthetic_down) setmousebuttonstate(0, 0, 0);
+    if (w.synthetic_down) setmousebuttonstate(w.active_mouse, 0, 0);
     w.synthetic_down = false;
     w.resize_phase = ResizePhase::idle;
     w.pending_w = w.pending_h = 0;
@@ -309,15 +313,28 @@ bool resize_target(ExportedWindow& w, const GuestWindow& g, int source_w, int so
     const int inset_y = std::max(2, std::max(g.bottom_border, 1) / 2);
     w.start_x = g.outer_x + g.outer_w - inset_x;
     w.start_y = g.outer_y + g.outer_h - inset_y;
+    w.requested_outer_w = ow;
+    w.requested_outer_h = oh;
     w.target_x = w.start_x + ow - g.outer_w;
     w.target_y = w.start_y + oh - g.outer_h;
     return w.start_x >= 0 && w.start_y >= 0 && w.start_x < source_w &&
            w.start_y < source_h && w.target_x >= 0 && w.target_y >= 0 &&
            w.target_x < source_w && w.target_y < source_h;
 }
-void set_guest_pointer(int x, int y) {
-    setmousestate(0, 0, x, 1);
-    setmousestate(0, 1, y, 1);
+void activate_resize_input(ExportedWindow& w) {
+    const int pause_before = pause_emulation;
+    if (pause_emulation > 0 && pause_emulation <= 2)
+        resumepaused_without_mouse_capture(2);
+    // Stage 4 explicitly acquired emulator input for the exported host
+    // window before injecting the Amiga Intuition size gadget gesture.
+    inputdevice_acquire(FALSE);
+    w.host_input_active = true;
+    write_log("AmiOS P0 resize: activated guest input mouse=%d pause=%d->%d\n",
+              w.active_mouse, pause_before, pause_emulation);
+}
+void set_guest_pointer(ExportedWindow& w, int x, int y) {
+    setmousestate(w.active_mouse, 0, x, 1);
+    setmousestate(w.active_mouse, 1, y, 1);
 }
 void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
     if (!resize_enabled || !w.resizable) return;
@@ -325,28 +342,36 @@ void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
     switch (w.resize_phase) {
     case ResizePhase::idle:
         if (!w.pending_w || !w.pending_h || now - w.pending_at < kResizeDebounce ||
-            w.close_phase != ClosePhase::idle) break;
-        if (!resize_target(w, g, sw, sh)) { w.pending_w = w.pending_h = 0; break; }
+            w.close_phase != ClosePhase::idle || w.pressed_buttons != 0) break;
+        if (!resize_target(w, g, sw, sh)) {
+            write_log("AmiOS P0 resize: rejected drag for '%s' canvas=%dx%d guest=%dx%d requested=%dx%d\n",
+                      g.title.c_str(), sw, sh, g.outer_w, g.outer_h, w.pending_w, w.pending_h);
+            w.pending_w = w.pending_h = 0;
+            break;
+        }
         w.pending_w = w.pending_h = 0;
         w.resize_start_w = g.outer_w; w.resize_start_h = g.outer_h;
-        if (pause_emulation > 0 && pause_emulation <= 2)
-            resumepaused_without_mouse_capture(2);
-        inputdevice_acquire(FALSE);
-        set_guest_pointer(w.start_x, w.start_y);
-        setmousebuttonstate(0, 0, 1);
+        if (w.requested_outer_w == g.outer_w && w.requested_outer_h == g.outer_h)
+            break;
+        activate_resize_input(w);
+        set_guest_pointer(w, w.start_x, w.start_y);
+        setmousebuttonstate(w.active_mouse, 0, 1);
         w.synthetic_down = true;
         w.resize_phase = ResizePhase::activation_press; w.resize_phase_at = now;
+        write_log("AmiOS P0 resize: began '%s' guest %dx%d -> target %dx%d gadget (%d,%d)->(%d,%d) mouse=%d\n",
+                  g.title.c_str(), g.outer_w, g.outer_h, w.requested_outer_w, w.requested_outer_h,
+                  w.start_x, w.start_y, w.target_x, w.target_y, w.active_mouse);
         break;
     case ResizePhase::activation_press:
         if (now - w.resize_phase_at >= kResizeActivation) {
-            setmousebuttonstate(0, 0, 0); w.synthetic_down = false;
+            setmousebuttonstate(w.active_mouse, 0, 0); w.synthetic_down = false;
             w.resize_phase = ResizePhase::activation_wait; w.resize_phase_at = now;
         }
         break;
     case ResizePhase::activation_wait:
         if (now - w.resize_phase_at >= kResizeActivationWait) {
-            set_guest_pointer(w.start_x, w.start_y);
-            setmousebuttonstate(0, 0, 1); w.synthetic_down = true;
+            set_guest_pointer(w, w.start_x, w.start_y);
+            setmousebuttonstate(w.active_mouse, 0, 1); w.synthetic_down = true;
             w.resize_phase = ResizePhase::press_hold; w.resize_phase_at = now;
         }
         break;
@@ -354,28 +379,37 @@ void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
         if (now - w.resize_phase_at >= kResizePressHold) {
             if (w.pending_w && w.pending_h) resize_target(w, g, sw, sh);
             w.pending_w = w.pending_h = 0;
-            set_guest_pointer(w.target_x, w.target_y);
+            set_guest_pointer(w, w.target_x, w.target_y);
+            write_log("AmiOS P0 resize: gadget held, dragging to (%d,%d)\n",
+                      w.target_x, w.target_y);
             w.resize_phase = ResizePhase::dragging; w.last_pointer_at = now;
         }
         break;
     case ResizePhase::dragging:
         if (w.pending_w && w.pending_h && now - w.last_pointer_at >= 16) {
             if (resize_target(w, g, sw, sh)) {
-                set_guest_pointer(w.target_x, w.target_y);
+                set_guest_pointer(w, w.target_x, w.target_y);
                 w.last_pointer_at = now;
             }
             w.pending_w = w.pending_h = 0;
         }
         if (now - w.pending_at >= kResizeIdle) {
-            setmousebuttonstate(0, 0, 0); w.synthetic_down = false;
+            setmousebuttonstate(w.active_mouse, 0, 0); w.synthetic_down = false;
+            write_log("AmiOS P0 resize: released gadget, awaiting real Intuition size\n");
             w.resize_phase = ResizePhase::waiting_result; w.resize_phase_at = now;
         }
         break;
     case ResizePhase::waiting_result:
-        if ((now - w.resize_phase_at >= 120 &&
-             (g.outer_w != w.resize_start_w || g.outer_h != w.resize_start_h)) ||
-            now - w.resize_phase_at >= kResizeResultTimeout)
+        if (now - w.resize_phase_at >= 120 &&
+            (g.outer_w != w.resize_start_w || g.outer_h != w.resize_start_h)) {
+            write_log("AmiOS P0 resize: Intuition confirmed %dx%d (requested %dx%d)\n",
+                      g.outer_w, g.outer_h, w.requested_outer_w, w.requested_outer_h);
             w.resize_phase = ResizePhase::idle;
+        } else if (now - w.resize_phase_at >= kResizeResultTimeout) {
+            write_log("AmiOS P0 resize: timed out. Intuition remained %dx%d, expected %dx%d; restoring host\n",
+                      g.outer_w, g.outer_h, w.requested_outer_w, w.requested_outer_h);
+            stop_resize(w);
+        }
         break;
     }
 }
@@ -548,9 +582,19 @@ bool amios_p0_export_event(const SDL_Event& e) {
         }
         target->pending_w = width; target->pending_h = height;
         target->pending_at = SDL_GetTicks();
+        if (target->resize_phase == ResizePhase::idle)
+            write_log("AmiOS P0 resize: host drag event %dx%d on '%s'\n",
+                      width, height, target->title.c_str());
+        return true;
+    }
+    if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST && target->synthetic_down) {
+        // Do not leave a synthetic Amiga mouse button held if labwc
+        // interrupts the drag, switches windows, or the window closes.
+        stop_resize(*target);
         return true;
     }
     if (e.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+        stop_resize(*target);
         // Ask AmiOSBridge to post IECLASS_CLOSEWINDOW to the correct guest.
         // Preserve both windows if the helper/application cannot close safely.
         for (auto& item : windows) if (&item.second == target) {
@@ -587,13 +631,19 @@ bool amios_p0_export_event(const SDL_Event& e) {
         const SDL_MouseID which = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.which : e.button.which;
         int mouse = get_mouse_index_from_sdl_id(which);
         if (mouse < 0) mouse = 0;
+        target->active_mouse = mouse;
         setmousestate(mouse, 0, target->guest_x + std::clamp(static_cast<int>(x), 0, target->width - 1), 1);
         setmousestate(mouse, 1, target->guest_y + std::clamp(static_cast<int>(y), 0, target->height - 1), 1);
         if (e.type != SDL_EVENT_MOUSE_MOTION) {
             const int b = e.button.button == SDL_BUTTON_LEFT ? 0 :
                           e.button.button == SDL_BUTTON_RIGHT ? 1 :
                           e.button.button == SDL_BUTTON_MIDDLE ? 2 : -1;
-            if (b >= 0) setmousebuttonstate(mouse, b, e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? 1 : 0);
+            if (b >= 0) {
+                const bool pressed = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+                setmousebuttonstate(mouse, b, pressed ? 1 : 0);
+                if (pressed) target->pressed_buttons |= 1u << b;
+                else target->pressed_buttons &= ~(1u << b);
+            }
         }
         break;
     }
