@@ -22,10 +22,10 @@ If you previously installed to `~/AmiOS/.local/Amiberry` and have already moved 
 4. Open EditPad and IconEdit; inspect independent SDL3 windows while leaving the original emulator monitor open.
 
 ## Flags
-`AMIOS_EXPORT_WINDOWS=1`: enable SDL window export. `AMIOS_VIRTUAL_RTG=1`: add 4K mode. `AMIOS_RTG_MONITOR=0`: RTG monitor (set 1 if your UAEGFX uses monitor 1). `AMIOS_EXPORT_INPUT=1`: enable experimental mouse and keyboard routing. `AMIOS_HIDE_ROOT=1`: hide original monitor after exports appear; Ctrl+Alt+F12 toggles it.
+`AMIOS_EXPORT_WINDOWS=1`: enable SDL window export. `AMIOS_VIRTUAL_RTG=1`: add 4K mode. `AMIOS_RTG_MONITOR=0`: RTG monitor (set 1 if your UAEGFX uses monitor 1). `AMIOS_EXPORT_INPUT=1`: enable experimental mouse and keyboard routing. `AMIOS_EXPORT_RESIZE=1`: opt in to the Stage 4 style real Intuition size-gadget drag (requires input=1; disabled by default). `AMIOS_HIDE_ROOT=1`: hide original monitor after exports appear; Ctrl+Alt+F12 toggles it.
 
 ## Known limitations
-Input, scrolling, resize, close handling, native screens, and custom-P96 screens have not been reimplemented/validated in this P0. Overlapping guest windows are not sampled; the host retains previous texture. The new code uploads complete windows rather than an incremental dirty-tile list. Test with input disabled initially. This is not a production release.
+Close requests now use AmiOSBridge's original protocol-2 command port; the host window remains until the guest window actually closes. Real live resize has been added as an opt-in Stage 4-style synthetic Intuition size-gadget gesture, **not yet build- or runtime-validated** on 8.4.1. Input, scrolling, close handling, resize, native screens, and custom-P96 screens still require further runtime testing. Overlapping guest windows are not sampled; the host retains previous texture. The new code uploads complete windows rather than an incremental dirty-tile list. Test with input disabled initially. This is not a production release.
 
 The historic RC1 source is retained separately rather than indiscriminately overlaid on 8.4.1.
 ## Versioning and project home
@@ -34,3 +34,13 @@ The historic RC1 source is retained separately rather than indiscriminately over
 - **AmiOSBridge v0.10** is the guest helper package (unchanged historic Stage 4d-R2 executable, guest wire protocol 2).
 - [AmiOS68K project homepage](https://github.com/das-portal/AmiOS68K) shows the current architecture and separates old R17E7 work from the active development.
 - This branch remains experimental until compiled and runtime-validated. Do not merge the existing draft PR solely because its naming is now aligned.
+
+## Next controlled v0.10 test (post-Stage 4 port)
+
+1. Close all programs and shut down AmigaOS; back up the boot HDF.
+2. Pull and rebuild branch `amios/8.4.1-portable-window-export-p0`. Confirm `C:AmiOSBridge` is the corrected **2452-byte** executable.
+3. First test **Linux X/close** with `AMIOS_EXPORT_RESIZE=0`. Only an Amiga window with a working close gadget should disappear. Noncloseable windows should remain open (no forced kill).
+4. For resizing, start the launcher explicitly with `AMIOS_EXPORT_INPUT=1 AMIOS_EXPORT_RESIZE=1 ~/.local/Amiberry/amios-run --config Configurations/YourOS.uae`. Test a *single disposable Workbench drawer* first. Observe whether contents update at 1:1 while dragging Labwc borders; verify both enlarging and shrinking.
+5. If the guest becomes unresponsive, exit cleanly and rerun with `AMIOS_EXPORT_RESIZE=0`. Do not combine resize test with input or focus changes not already proven on this machine.
+
+The installer defaults continue to **input=0, resize=off, root visible**. Changes are experimental, not confirmed working yet.
