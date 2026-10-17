@@ -51,6 +51,7 @@
 #include "inputdevice.h"
 #include "drawing.h"
 #include "amiberry_gfx.h"
+#include "amios_p0_window_export.h"
 #include "irenderer.h"
 #include "autoconf.h"
 #include "gui.h"
@@ -4175,6 +4176,7 @@ static AmigaMonitor* monitor_from_window_id(SDL_WindowID window_id)
 
 static void process_event(const SDL_Event& event)
 {
+	if (amios_p0_export_event(event)) return;
 	drain_pending_touch_neutralization();
 #ifdef __ANDROID__
 	amiberry_android_retire_gui_swipe_filter_contact(event);
