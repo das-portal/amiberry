@@ -44,3 +44,13 @@ The historic RC1 source is retained separately rather than indiscriminately over
 5. If the guest becomes unresponsive, exit cleanly and rerun with `AMIOS_EXPORT_RESIZE=0`. Do not combine resize test with input or focus changes not already proven on this machine.
 
 The installer defaults continue to **input=0, resize=off, root visible**. Changes are experimental, not confirmed working yet.
+
+## Live resize diagnostics (Stage 4 input-ownership port)
+
+With the corrected 2452-byte AmiOSBridge installed, build the latest development branch and launch once with:
+
+```bash
+AMIOS_EXPORT_INPUT=1 AMIOS_EXPORT_RESIZE=1 ~/.local/Amiberry/amios-run --log --config Configurations/YourOS.uae
+```
+
+Only test a disposable Workbench drawer initially. The log now distinguishes: Wayland host resize event; synthetic guest input activation and selected mouse index; start/target size-gadget coordinates; held and released drag; actual changed Intuition geometry versus timeout. If the Wayland window expands to a black area and snaps back, collect the `AmiOS P0 resize:` log lines, particularly the device index and guest geometry. **This is a candidate repair, not a tested fix.** Re-run without `AMIOS_EXPORT_RESIZE=1` to disable the experiment.
