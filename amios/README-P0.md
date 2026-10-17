@@ -9,9 +9,11 @@ cd amiberry
 bash amios/install-p0.sh
 ```
 
-The installer builds the branch and installs to `$HOME/AmiOS/.local/Amiberry`. The `amiberry.portable` marker uses upstream 8.4.1 portable mode, anchoring settings, config, drives and ROMs to the executable directory. It never moves/overwrites existing HDFs, ROMs or configs.
+Run this as your normal `amios` user (do not use `sudo`). The installer builds the branch and installs to `$HOME/.local/Amiberry`. The `amiberry.portable` marker uses upstream 8.4.1 portable mode, anchoring settings, config, drives and ROMs to the executable directory. It never moves/overwrites existing HDFs, ROMs or configs. The application directory itself can be moved because the portable mode locates its data relative to the executable; review any absolute HDF/ROM paths saved in existing `.uae` configurations.
 
-Run: `$HOME/AmiOS/.local/Amiberry/amios-run --config Configurations/YourOS.uae`.
+On your AmiOS login, run: `~/.local/Amiberry/amios-run --config Configurations/YourOS.uae`.
+
+If you previously installed to `~/AmiOS/.local/Amiberry` and have already moved the entire `Amiberry` folder to `~/.local/`, **do not reinstall** solely to fix the location. Check that `amiberry`, `amiberry.portable`, and `amios-run` are together in `~/.local/Amiberry/` and run `~/.local/Amiberry/amiberry --dump-paths`.
 
 ## Testing
 1. Copy/link your licensed ROMs and existing OS drives to `roms/`, `harddrives/`; edit the `.uae` paths to relative file paths and verify using `./amiberry --dump-paths`.
