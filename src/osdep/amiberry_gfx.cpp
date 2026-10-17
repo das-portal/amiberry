@@ -32,6 +32,7 @@
 #include "picasso96.h"
 #include "gui.h"
 #include "amiberry_gfx.h"
+#include "amios_p0_window_export.h"
 #include "perf_monitor.h"
 #include "sounddep/sound.h"
 #include "inputdevice.h"
@@ -1108,6 +1109,8 @@ float calculate_rtg_integer_scale(int render_width, int render_height,
 
 void show_screen(const int monid, int mode)
 {
+	// AmiOS SDL3 windows consume the RTG surface before the primary display is presented.
+	amios_p0_export_present(monid, get_amiga_surface(monid), picasso_is_active(monid) != 0);
 	// Skip all rendering if headless mode
 	if (currprefs.headless) {
 		return;
