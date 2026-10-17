@@ -25,6 +25,7 @@
 
 namespace {
 constexpr uaecptr kExecLibList = 0x17a;
+constexpr uaecptr kExecPortList = 392;
 constexpr uaecptr kNodeNext = 0;
 constexpr uaecptr kNodeName = 10;
 constexpr uaecptr kFirstScreen = 0x3c;
@@ -46,12 +47,20 @@ constexpr uaecptr kWindowBorderBottom = 57;
 constexpr uae_u32 kBackdrop = 0x100;
 constexpr size_t kMaxWindows = 64;
 constexpr int kRetireAfterMisses = 6;
+// AmiOSBridge v0.10 is the unchanged Stage 4 protocol-2 allocator.
+constexpr uaecptr kBridgeMagic = 36, kBridgeVersion = 40;
+constexpr uaecptr kBridgeCommand = 44, kBridgeSequence = 48;
+constexpr uaecptr kBridgeAck = 52, kBridgeWindow = 56, kBridgeResult = 60;
+constexpr uae_u32 kBridgeMagicValue = 0x414d4934, kBridgeVersionValue = 2;
+constexpr uae_u32 kBridgeClose = 1, kBridgePosted = 1;
+constexpr uint64_t kBridgeTimeoutMs = 1500;
 
 struct GuestWindow {
     uaecptr id = 0;
     int x = 0, y = 0, w = 0, h = 0;
     std::string title;
 };
+enum class ClosePhase { idle, request, wait_ack, wait_guest };
 struct ExportedWindow {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
@@ -62,6 +71,9 @@ struct ExportedWindow {
     int missed = 0;
     bool seen = false;
     bool has_frame = false;
+    ClosePhase close_phase = ClosePhase::idle;
+    uae_u32 close_sequence = 0;
+    uint64_t close_started = 0;
     std::string title;
 };
 
@@ -69,7 +81,8 @@ std::map<uaecptr, ExportedWindow> windows;
 bool initialized = false, enabled = false, input_enabled = false;
 bool hide_root = false, root_hidden = false, root_unhidden_by_user = false;
 int monitor_id = 0;
-uaecptr intuition_cache = 0;
+uaecptr intuition_cache = 0, bridge_port_cache = 0;
+uae_u32 bridge_next_sequence = 1;
 uint64_t last_warning_ms = 0;
 
 bool flag(const char* name) {
@@ -142,6 +155,75 @@ uaecptr rtg_screen(int width, int height) {
     }
     return 0;
 }
+
+uaecptr bridge_port() {
+    if (readable(bridge_port_cache + kBridgeResult, 4) &&
+        get_long(bridge_port_cache + kBridgeMagic) == kBridgeMagicValue &&
+        get_long(bridge_port_cache + kBridgeVersion) == kBridgeVersionValue)
+        return bridge_port_cache;
+    bridge_port_cache = 0;
+    if (!valid_address(4, 4)) return 0;
+    const uaecptr exec = get_long(4);
+    if (!readable(exec + kExecPortList, 12)) return 0;
+    uaecptr port = get_long(exec + kExecPortList);
+    for (int n = 0; n < 256 && readable(port, kBridgeResult + 4); ++n) {
+        if (guest_string(get_long(port + kNodeName)) == "AmiOS68k.Port" &&
+            get_long(port + kBridgeMagic) == kBridgeMagicValue &&
+            get_long(port + kBridgeVersion) == kBridgeVersionValue) {
+            bridge_port_cache = port;
+            return port;
+        }
+        const uaecptr next = get_long(port + kNodeNext);
+        if (!next || next == port) break;
+        port = next;
+    }
+    return 0;
+}
+void advance_close(ExportedWindow& slot, const uaecptr guest_id) {
+    if (slot.close_phase == ClosePhase::idle) return;
+    const uint64_t now = SDL_GetTicks();
+    if (slot.close_phase == ClosePhase::request) {
+        const uaecptr port = bridge_port();
+        if (port && !get_long(port + kBridgeCommand)) {
+            uae_u32 seq = bridge_next_sequence++;
+            if (!seq) seq = bridge_next_sequence++;
+            put_long(port + kBridgeWindow, guest_id);
+            put_long(port + kBridgeResult, 0);
+            put_long(port + kBridgeSequence, seq);
+            put_long(port + kBridgeCommand, kBridgeClose); // command written last
+            slot.close_sequence = seq;
+            slot.close_started = now;
+            slot.close_phase = ClosePhase::wait_ack;
+            write_log("AmiOS P0: requested guest close Window* %08x seq=%u\n",
+                      static_cast<unsigned>(guest_id), seq);
+        } else if (now - slot.close_started >= kBridgeTimeoutMs) {
+            write_log("AmiOS P0: close not sent (AmiOSBridge unavailable/busy); guest preserved\n");
+            slot.close_phase = ClosePhase::idle;
+        }
+    } else if (slot.close_phase == ClosePhase::wait_ack) {
+        const uaecptr port = bridge_port();
+        if (port && get_long(port + kBridgeAck) == slot.close_sequence) {
+            const uae_u32 result = get_long(port + kBridgeResult);
+            if (result == kBridgePosted) {
+                slot.close_phase = ClosePhase::wait_guest;
+                slot.close_started = now;
+            } else {
+                // In protocol 2, result 3 means no close gadget.
+                // Don't send Escape to an arbitrary requester or close the host view.
+                write_log("AmiOS P0: guest cannot close this window (result=%u)\n", result);
+                slot.close_phase = ClosePhase::idle;
+            }
+        } else if (now - slot.close_started >= kBridgeTimeoutMs) {
+            write_log("AmiOS P0: guest close acknowledgement timeout; guest preserved\n");
+            slot.close_phase = ClosePhase::idle;
+        }
+    } else if (slot.close_phase == ClosePhase::wait_guest &&
+               now - slot.close_started >= kBridgeTimeoutMs) {
+        write_log("AmiOS P0: guest remains open after close; waiting for application\n");
+        slot.close_phase = ClosePhase::idle;
+    }
+}
+
 std::vector<GuestWindow> scan(SDL_Surface* source) {
     std::vector<GuestWindow> found;
     const uaecptr screen = rtg_screen(source->w, source->h);
@@ -268,6 +350,7 @@ void amios_p0_export_present(int monid, SDL_Surface* source, bool p96_active) {
         slot.seen = true;
         slot.missed = 0;
         slot.guest_x = guest.x; slot.guest_y = guest.y;
+        advance_close(slot, guest.id);
         if (collision) {
             if (SDL_GetTicks() - last_warning_ms >= 5000) {
                 write_log("AmiOS P0: guest windows overlap; waiting for allocator rather than capturing contaminated pixels\n");
@@ -317,9 +400,15 @@ bool amios_p0_export_event(const SDL_Event& e) {
     }
     if (!target) return false;
     if (e.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
-        // Never terminate the shared AmigaOS session or kill a guest task
-        // on a Linux close request in this first, unproven input build.
-        write_log("AmiOS P0: Linux close ignored; close the program in AmigaOS\n");
+        // Ask AmiOSBridge to post IECLASS_CLOSEWINDOW to the correct guest.
+        // Preserve both windows if the helper/application cannot close safely.
+        for (auto& item : windows) if (&item.second == target) {
+            if (target->close_phase == ClosePhase::idle) {
+                target->close_phase = ClosePhase::request;
+                target->close_started = SDL_GetTicks();
+            }
+            break;
+        }
         return true;
     }
     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat &&
