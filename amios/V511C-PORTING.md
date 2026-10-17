@@ -21,6 +21,10 @@ Use the complete **AmiOS68k-Amiberry-8.3.0-v5.11c-complete-baseline.zip** archiv
 - Host-side scrollbars with genuine PropGadget state and FreeWheel scroll bridge
 - Genuine 1920x2048x32 P96 guest screen, with an ordinary overlapping-window arena above a protected widget shelf
 
+## Revalidated archive (17 Oct 2026)
+
+The complete archived package passed its supplied `validate-stage5.sh`: all package SHA-256 checksums, host window model tests and benchmark, and reproducible assembly of the AmigaOS protocol-v5 helper (2,964 bytes, exact SHA-256 match). This validates the **archived baseline** only; it is not evidence that the code compiles or runs on Amiberry 8.4.1.
+
 ## Architecture decision **before** transplanting
 
 The current 8.4.1 P0 relies on **4096x2160 non-overlapping** Stage 4 backing and **protocol-2** AmiOSBridge; v5.11c instead relies on the **1920x2048 overlapping** Stage 5 model and **protocol-5** guest helper (with guest focus). Blindly replacing the exporter breaks its framebuffer/input/guest assumptions.
