@@ -51,6 +51,10 @@ constexpr uae_u32 kBackdrop = 0x100;
 constexpr uint64_t kResizeDebounce = 40, kResizeIdle = 110, kResizeActivation = 60;
 constexpr uint64_t kResizeActivationWait = 120, kResizePressHold = 40;
 constexpr uint64_t kResizeResultTimeout = 2500;
+// A mouse move followed by release on the next host frame can be invisible to
+// guest input polling. Keep the size gadget held through several guest frames.
+constexpr uint64_t kResizeMinimumDragHoldMs = 180;
+constexpr uint64_t kResizeRepeatPointerMs = 35;
 constexpr size_t kMaxWindows = 64;
 constexpr int kRetireAfterMisses = 6;
 // AmiOSBridge v0.10 is the unchanged Stage 4 protocol-2 allocator.
@@ -93,7 +97,8 @@ struct ExportedWindow {
     bool host_input_active = false;
     int requested_outer_w = 0, requested_outer_h = 0;
     ResizePhase resize_phase = ResizePhase::idle;
-    uint64_t resize_phase_at = 0, last_pointer_at = 0;
+    uint64_t resize_phase_at = 0, last_pointer_at = 0, drag_started_at = 0;
+    bool reported_guest_button = false;
     int expected_host_w = 0, expected_host_h = 0;
     uint64_t expected_until = 0;
     ClosePhase close_phase = ClosePhase::idle;
@@ -297,6 +302,8 @@ void stop_resize(ExportedWindow& w) {
     if (w.synthetic_down) setmousebuttonstate(w.active_mouse, 0, 0);
     w.synthetic_down = false;
     w.resize_phase = ResizePhase::idle;
+    w.drag_started_at = 0;
+    w.reported_guest_button = false;
     w.pending_w = w.pending_h = 0;
 }
 bool resize_target(ExportedWindow& w, const GuestWindow& g, int source_w, int source_h) {
@@ -358,6 +365,7 @@ void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
         setmousebuttonstate(w.active_mouse, 0, 1);
         w.synthetic_down = true;
         w.resize_phase = ResizePhase::activation_press; w.resize_phase_at = now;
+        w.reported_guest_button = false;
         write_log("AmiOS P0 resize: began '%s' guest %dx%d -> target %dx%d gadget (%d,%d)->(%d,%d) mouse=%d\n",
                   g.title.c_str(), g.outer_w, g.outer_h, w.requested_outer_w, w.requested_outer_h,
                   w.start_x, w.start_y, w.target_x, w.target_y, w.active_mouse);
@@ -382,7 +390,9 @@ void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
             set_guest_pointer(w, w.target_x, w.target_y);
             write_log("AmiOS P0 resize: gadget held, dragging to (%d,%d)\n",
                       w.target_x, w.target_y);
-            w.resize_phase = ResizePhase::dragging; w.last_pointer_at = now;
+            w.resize_phase = ResizePhase::dragging;
+            w.drag_started_at = now;
+            w.last_pointer_at = now;
         }
         break;
     case ResizePhase::dragging:
@@ -393,9 +403,25 @@ void advance_resize(ExportedWindow& w, const GuestWindow& g, int sw, int sh) {
             }
             w.pending_w = w.pending_h = 0;
         }
-        if (now - w.pending_at >= kResizeIdle) {
+        // SDL and AmigaOS do not necessarily poll input in the same frame.
+        // Hold at the destination for several guest frames, reasserting the
+        // pointer while the simulated gadget mouse button stays depressed.
+        if (now - w.last_pointer_at >= kResizeRepeatPointerMs) {
+            set_guest_pointer(w, w.target_x, w.target_y);
+            w.last_pointer_at = now;
+        }
+        if (!w.reported_guest_button && now - w.drag_started_at >= 40) {
+            const uae_u32 buttons = getmousebuttonstate(w.active_mouse);
+            write_log("AmiOS P0 resize: host injection mouse=%d button-mask=%08x mousehack=%d tablet=%d\n",
+                      w.active_mouse, static_cast<unsigned>(buttons),
+                      mousehack_alive() ? 1 : 0, currprefs.input_tablet);
+            w.reported_guest_button = true;
+        }
+        if (now - w.pending_at >= kResizeIdle &&
+            now - w.drag_started_at >= kResizeMinimumDragHoldMs) {
             setmousebuttonstate(w.active_mouse, 0, 0); w.synthetic_down = false;
-            write_log("AmiOS P0 resize: released gadget, awaiting real Intuition size\n");
+            write_log("AmiOS P0 resize: released after %llu ms drag hold, awaiting Intuition size\n",
+                      static_cast<unsigned long long>(now - w.drag_started_at));
             w.resize_phase = ResizePhase::waiting_result; w.resize_phase_at = now;
         }
         break;
