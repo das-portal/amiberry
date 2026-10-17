@@ -241,6 +241,7 @@ set(SOURCE_FILES
         src/osdep/amiberry_input.cpp
         src/osdep/input_platform.cpp
         src/osdep/amiberry_gfx.cpp
+        src/osdep/amios_p0_window_export.cpp
         src/osdep/display_modes.cpp
         src/osdep/gfx_colors.cpp
         src/osdep/gfx_prefs_check.cpp
