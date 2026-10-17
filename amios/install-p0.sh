@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${AMIOS_ROOT:-$HOME/AmiOS/.local/Amiberry}"
+ROOT="${AMIOS_ROOT:-$HOME/.local/Amiberry}"
 BUILD="${BUILD_DIR:-build-amios-p0}"
 test -f src/osdep/amios_p0_window_export.cpp || { echo "Run from AmiOS P0 source checkout" >&2; exit 1; }
 mkdir -p "$ROOT"
