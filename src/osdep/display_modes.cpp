@@ -799,6 +799,18 @@ void sortdisplays()
 			}
 
 		}
+		// AmiOS virtual RTG mode: independent of the host display resolution.
+		// Enabled only by the AmiOS launch wrapper.
+		if (const char* v = std::getenv("AMIOS_VIRTUAL_RTG")) {
+			if (std::strcmp(v, "1") == 0) {
+				SDL_DisplayMode virtual_mode{};
+				virtual_mode.w = 4096;
+				virtual_mode.h = 2160;
+				virtual_mode.format = SDL_PIXELFORMAT_ARGB8888;
+				virtual_mode.refresh_rate = 60.0f;
+				addmode(md, &virtual_mode, 0);
+			}
+		}
 		sortmodes(md);
 		modesList(md);
 		i = 0;
