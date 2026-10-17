@@ -54,3 +54,7 @@ AMIOS_EXPORT_INPUT=1 AMIOS_EXPORT_RESIZE=1 ~/.local/Amiberry/amios-run --log --c
 ```
 
 Only test a disposable Workbench drawer initially. The log now distinguishes: Wayland host resize event; synthetic guest input activation and selected mouse index; start/target size-gadget coordinates; held and released drag; actual changed Intuition geometry versus timeout. If the Wayland window expands to a black area and snaps back, collect the `AmiOS P0 resize:` log lines, particularly the device index and guest geometry. **This is a candidate repair, not a tested fix.** Re-run without `AMIOS_EXPORT_RESIZE=1` to disable the experiment.
+
+### 17 Oct: short-drag hold correction
+
+A live test showed the pointer movement at 23:525 followed by button release at 23:542 (17 ms); guest Intuition remained 282x216. The experimental host now holds the synthetic size-gadget press for **at least 180 ms after moving**, reasserts pointer position during the hold, and logs `host injection mouse=... button-mask=... mousehack=... tablet=...`, `released after ... ms`, and actual Intuition geometry. This is **not yet validated**. Do not merge until tested. If the guest still fails to resize, investigate a direct `SizeWindow`/`ChangeWindowBox` command through an updated guest helper instead of adding more synthetic-mouse timing patches.
